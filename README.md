@@ -7,12 +7,15 @@ Aplicação desktop para baixar vídeos do YouTube e converter arquivos de áudi
 ## Funcionalidades
 
 - Download de vídeos do YouTube em **MP4**, **MP3** e **WAV**
+- Escolha da qualidade do vídeo (144p até 4K)
+- Prévia da thumbnail e título do vídeo antes de baixar
 - Escolha da pasta de destino e nome do arquivo
+- Barra de progresso em tempo real
 - **Conversor** de formatos (MP4, MP3, WAV)
 - Validação para evitar conversão desnecessária (mesmo formato)
-- Barra de progresso com confirmação visual em verde
-- Alertas de erro em vermelho
-- Interface com tema escuro
+- **Histórico de downloads** com data, título e formato
+- Alertas visuais de sucesso (verde) e erro (vermelho)
+- Interface com tema escuro e três abas
 
 ---
 
@@ -21,6 +24,7 @@ Aplicação desktop para baixar vídeos do YouTube e converter arquivos de áudi
 ```
 ├── downloader.py   # Lógica de download (yt-dlp)
 ├── interface.py    # Interface gráfica (CustomTkinter)
+├── historico.py    # Gerenciamento do histórico (JSON)
 └── README.md
 ```
 
@@ -32,10 +36,12 @@ Aplicação desktop para baixar vídeos do YouTube e converter arquivos de áudi
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter)
 - [ffmpeg](https://ffmpeg.org/)
+- [Pillow](https://python-pillow.org/)
+- [requests](https://requests.readthedocs.io/)
 
 ---
 
-## ⚡ Download Rápido
+## Download Rápido
 
 Não quer instalar nada? Baixe o executável direto na seção de [Releases](https://github.com/Eduardodev3113/Downloader-Youtube/releases) e rode sem precisar de Python instalado.
 
@@ -45,13 +51,13 @@ Não quer instalar nada? Baixe o executável direto na seção de [Releases](htt
 
 **1. Clone o repositório:**
 ```bash
-git clone https://github.com/seu-usuario/Downloader-Youtube.git
+git clone https://github.com/Eduardodev3113/Downloader-Youtube.git
 cd Downloader-Youtube
 ```
 
 **2. Instale as dependências Python:**
 ```bash
-pip install yt-dlp customtkinter
+pip install yt-dlp customtkinter Pillow requests
 ```
 
 **3. Instale o ffmpeg:**
@@ -79,15 +85,22 @@ python interface.py
 
 ### Aba Downloader
 1. Cole a URL do vídeo do YouTube
-2. Digite um nome para o arquivo (opcional)
-3. Escolha a pasta de destino
-4. Selecione o formato (MP4, MP3 ou WAV)
-5. Clique em **Iniciar Download**
+2. Clique em **Buscar** para ver a thumbnail, título e qualidades disponíveis
+3. Escolha a qualidade desejada
+4. Digite um nome para o arquivo (opcional)
+5. Escolha a pasta de destino
+6. Selecione o formato (MP4, MP3 ou WAV)
+7. Clique em **Iniciar Download**
 
 ### Aba Conversor
 1. Clique em **Escolher arquivo** e selecione o arquivo
 2. Selecione o formato de saída
 3. Clique em **Converter**
+
+### Aba Histórico
+- Mostra todos os downloads e conversões realizados
+- Exibe título, formato e data de cada item
+- Botão **Limpar Histórico** para apagar todos os registros
 
 ---
 
@@ -100,3 +113,6 @@ python interface.py
 | ffmpeg | Conversão de formatos |
 | threading | Download sem travar a interface |
 | subprocess | Chamada do ffmpeg pelo Python |
+| Pillow | Exibição da thumbnail na interface |
+| requests | Download da thumbnail |
+| json | Armazenamento do histórico |
