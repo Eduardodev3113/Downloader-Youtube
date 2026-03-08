@@ -35,6 +35,12 @@ Aplicação desktop para baixar vídeos do YouTube e converter arquivos de áudi
 
 ---
 
+## ⚡ Download Rápido
+
+Não quer instalar nada? Baixe o executável direto na seção de [Releases](https://github.com/Eduardodev3113/Downloader-Youtube/releases) e rode sem precisar de Python instalado.
+
+---
+
 ## Instalação
 
 **1. Clone o repositório:**
