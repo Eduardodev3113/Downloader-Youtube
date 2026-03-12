@@ -1,9 +1,16 @@
 import yt_dlp
 import os
+import sys
 
 pastaAtual = os.getcwd()
 
 def baixar(url, pasta, opcao, barra, nome, qualidade="Melhor qualidade"):
+    
+    if hasattr(sys, '_MEIPASS'):
+        ffmpeg_path = os.path.join(sys._MEIPASS, "ffmpeg.exe")
+    else:
+        ffmpeg_path = "ffmpeg" 
+    
     if not nome:
         nome = "%(title)s"
 
@@ -32,10 +39,12 @@ def baixar(url, pasta, opcao, barra, nome, qualidade="Melhor qualidade"):
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
             "merge_output_format": "mp4",
             "progress_hooks": [progresso],
+            "ffmpeg_location": ffmpeg_path
         }
     elif opcao == "2":
         ydl_opts = {
             "noplaylist": True,
+            "ffmpeg_location": ffmpeg_path,
             "format": "bestaudio/best",
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
             "progress_hooks": [progresso],
@@ -43,16 +52,19 @@ def baixar(url, pasta, opcao, barra, nome, qualidade="Melhor qualidade"):
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
             }]
+            
         }
     elif opcao == "3":
         ydl_opts = {
             "noplaylist": True,
+            "ffmpeg_location": ffmpeg_path,
             "format": "bestaudio/best",
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
             "progress_hooks": [progresso],
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "wav",
+                
             }]
         }
 
