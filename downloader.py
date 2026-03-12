@@ -3,22 +3,32 @@ import os
 
 pastaAtual = os.getcwd()
 
-def baixar(url, pasta, opcao, barra, nome):
+def baixar(url, pasta, opcao, barra, nome, qualidade="Melhor qualidade"):
     if not nome:
         nome = "%(title)s"
+
     with yt_dlp.YoutubeDL({}) as ydl:
         info = ydl.extract_info(url, download=False)
         titulo = info["title"]
+
     def progresso(d):
         if d["status"] == "downloading":
             if d.get("total_bytes"):
                 percentual = d["downloaded_bytes"] / d["total_bytes"]
-            barra.set(percentual)
+                barra.set(percentual)
         return
+
+    # monta o formato baseado na qualidade escolhida
+    if qualidade == "Melhor qualidade":
+        formato_mp4 = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+    else:
+        altura = qualidade.replace("p", "")
+        formato_mp4 = f"bestvideo[height<={altura}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+
     if opcao == "1":
         ydl_opts = {
             "noplaylist": True,
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+            "format": formato_mp4,
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
             "merge_output_format": "mp4",
             "progress_hooks": [progresso],
@@ -28,24 +38,23 @@ def baixar(url, pasta, opcao, barra, nome):
             "noplaylist": True,
             "format": "bestaudio/best",
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
+            "progress_hooks": [progresso],
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-            "progress_hooks": [progresso],
-        }]
-    }
+            }]
+        }
     elif opcao == "3":
         ydl_opts = {
             "noplaylist": True,
             "format": "bestaudio/best",
             "outtmpl": os.path.join(pasta, f"{nome}.%(ext)s"),
+            "progress_hooks": [progresso],
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "wav",
-            "progress_hooks": [progresso],
-        }]
-    }
-
+            }]
+        }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])

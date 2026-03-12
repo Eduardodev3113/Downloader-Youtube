@@ -9,9 +9,10 @@ import requests
 from PIL import Image
 from io import BytesIO
 from customtkinter import CTkImage
-from historico import salvar_download, carregar_historico
-
 from historico import salvar_download, carregar_historico, limpar_historico
+import sys
+
+
 
 def apagar_historico():
     limpar_historico()
@@ -24,6 +25,13 @@ janela = ctk.CTk()
 janela.title("YouTube Downloader")
 janela.geometry("500x550")
 
+def resource_path(file):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, file)
+    return os.path.abspath(file)
+
+janela.iconbitmap(resource_path("icone.ico"))
+
 abas = ctk.CTkTabview(janela)
 abas.pack(fill="both", expand=True)
 
@@ -31,7 +39,7 @@ abas.add("Downloader")
 abas.add("Conversor")
 abas.add("Histórico")
 
-# ── ABA DOWNLOADER ──────────────────────────────────────────────────────────
+# ── ABA DOWNLOADER 
 frame_down = ctk.CTkScrollableFrame(abas.tab("Downloader"), width=460, height=450)
 frame_down.pack(fill="both", expand=True)
 
@@ -40,6 +48,15 @@ label_url.pack(pady=5)
 
 campo_url = ctk.CTkEntry(frame_down, width=400)
 campo_url.pack(pady=5)
+
+btn_buscar = ctk.CTkButton(frame_down, text="Buscar", command=lambda: buscar_info())
+btn_buscar.pack(pady=5)
+
+label_thumb = ctk.CTkLabel(frame_down, text="")
+label_thumb.pack(pady=5)
+
+label_titulo_video = ctk.CTkLabel(frame_down, text="", wraplength=400)
+label_titulo_video.pack(pady=2)
 
 label_qualidade = ctk.CTkLabel(frame_down, text="Qualidade:")
 label_qualidade.pack(pady=5)
@@ -68,15 +85,6 @@ def buscar_info():
     qualidades.sort(key=lambda x: int(x.replace("p", "")), reverse=True)
     menu_qualidade.configure(values=qualidades)
     qualidade_var.set(qualidades[0])
-
-btn_buscar = ctk.CTkButton(frame_down, text="Buscar", command=buscar_info)
-btn_buscar.pack(pady=5)
-
-label_thumb = ctk.CTkLabel(frame_down, text="")
-label_thumb.pack(pady=5)
-
-label_titulo_video = ctk.CTkLabel(frame_down, text="", wraplength=400)
-label_titulo_video.pack(pady=2)
 
 label_nome_arquivo = ctk.CTkLabel(frame_down, text="Nome do Arquivo:")
 label_nome_arquivo.pack(pady=5)
@@ -117,7 +125,7 @@ def iniciar_download():
     barra.set(0)
     barra.configure(progress_color="#1f6aa5")
     def download_thread():
-        titulo = baixar(campo_url.get(), campo_pasta.get(), formato.get(), barra, campo_nome_arquivo.get())
+        titulo = baixar(campo_url.get(), campo_pasta.get(), formato.get(), barra, campo_nome_arquivo.get(), qualidade_var.get())
         salvar_download(titulo, formato.get(), campo_pasta.get())
         ler_historico()
         barra.set(1)
@@ -133,7 +141,7 @@ btn_iniciar_download.pack(pady=5)
 barra = ctk.CTkProgressBar(frame_down, width=400)
 barra.set(0)
 
-# ── ABA CONVERSOR ───────────────────────────────────────────────────────────
+# ── ABA CONVERSOR 
 label_conversor = ctk.CTkLabel(abas.tab("Conversor"), text="Arquivo escolhido: ")
 label_conversor.pack(pady=5)
 
@@ -188,7 +196,7 @@ def converter():
 btn_converter = ctk.CTkButton(abas.tab("Conversor"), text="Converter", command=converter)
 btn_converter.pack(pady=5)
 
-# ── ABA HISTÓRICO ───────────────────────────────────────────────────────────
+# ── ABA HISTÓRICO 
 label_historico = ctk.CTkLabel(abas.tab("Histórico"), text="Histórico de Downloads")
 label_historico.pack(pady=5)
 
