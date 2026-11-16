@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>YT / Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+  rel="stylesheet"
+/>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <nav class="rail">
+      <div class="rail-brand">
+        <span class="led" id="statusLed"></span>
+        <span class="brand-mono">YT/DECK</span>
+      </div>
+
+      <div class="rail-channels">
+        <button class="channel active" data-view="downloader" type="button">
+          <span class="channel-dot"></span>
+          <span class="channel-label">Baixar</span>
+        </button>
+        <button class="channel" data-view="conversor" type="button">
+          <span class="channel-dot"></span>
+          <span class="channel-label">Converter</span>
+        </button>
+        <button class="channel" data-view="historico" type="button">
+          <span class="channel-dot"></span>
+          <span class="channel-label">Histórico</span>
+        </button>
+      </div>
+
+      <div class="rail-footer">
+        <span>yt-dlp · ffmpeg</span>
+      </div>
+    </nav>
+
+    <main class="stage">
+      <!-- ================= DOWNLOADER ================= -->
+      <section class="view active" id="view-downloader">
+        <header class="view-header">
+          <h1>Baixar</h1>
+          <p class="view-sub">Cole a URL, escolha o formato e o Deck cuida do resto.</p>
+        </header>
+
+        <div class="panel">
+          <div class="field">
+            <label for="inputUrl">URL do vídeo</label>
+            <div class="field-row">
+              <input type="text" id="inputUrl" placeholder="https://www.youtube.com/watch?v=..." />
+              <button class="btn btn-ghost" id="btnBuscar" type="button">Buscar</button>
+            </div>
+          </div>
+
+          <div class="preview" id="preview" hidden>
+            <img class="thumb" id="thumbImg" alt="Thumbnail do vídeo" />
+            <div class="preview-info">
+              <p class="preview-title" id="previewTitulo"></p>
+              <p class="preview-meta" id="previewMeta"></p>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label for="selectQualidade">Qualidade</label>
+              <div class="select-wrap">
+                <select id="selectQualidade">
+                  <option>Melhor qualidade</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="inputNome">Nome do arquivo</label>
+              <input type="text" id="inputNome" placeholder="Opcional" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="inputPasta">Pasta de destino</label>
+            <div class="field-row">
+              <input type="text" id="inputPasta" placeholder="Escolha uma pasta" readonly />
+              <button class="btn btn-ghost" id="btnPasta" type="button">Escolher</button>
+              <button class="btn btn-icon" id="btnAbrirPasta" type="button" title="Abrir pasta">↗</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Formato</label>
+            <div class="radio-group" id="formatoGroup">
+              <label class="radio">
+                <input type="radio" name="formato" value="1" checked />
+                <span>MP4</span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="formato" value="2" />
+                <span>MP3</span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="formato" value="3" />
+                <span>WAV</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="meter-block" id="meterBlock" hidden>
+            <div class="meter">
+              <div class="meter-fill" id="meterFill"></div>
+            </div>
+            <span class="meter-readout" id="meterReadout">0%</span>
+          </div>
+
+          <p class="status-msg" id="downloadStatus"></p>
+
+          <button class="btn btn-primary" id="btnDownload" type="button">Iniciar download</button>
+        </div>
+      </section>
+
+      <!-- ================= CONVERSOR ================= -->
+      <section class="view" id="view-conversor">
+        <header class="view-header">
+          <h1>Converter</h1>
+          <p class="view-sub">Transforma um arquivo local entre MP4, MP3 e WAV.</p>
+        </header>
+
+        <div class="panel">
+          <div class="field">
+            <label for="inputArquivo">Arquivo</label>
+            <div class="field-row">
+              <input type="text" id="inputArquivo" placeholder="Nenhum arquivo escolhido" readonly />
+              <button class="btn btn-ghost" id="btnArquivo" type="button">Escolher</button>
+              <button class="btn btn-icon" id="btnAbrirPastaConv" type="button" title="Abrir pasta">↗</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Formato de saída</label>
+            <div class="radio-group" id="formatoConvGroup">
+              <label class="radio">
+                <input type="radio" name="formatoConv" value="1" checked />
+                <span>MP4</span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="formatoConv" value="2" />
+                <span>MP3</span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="formatoConv" value="3" />
+                <span>WAV</span>
+              </label>
+            </div>
+          </div>
+
+          <p class="status-msg" id="convStatus"></p>
+
+          <button class="btn btn-primary" id="btnConverter" type="button">Converter</button>
+        </div>
+      </section>
+
+      <!-- ================= HISTÓRICO ================= -->
+      <section class="view" id="view-historico">
+        <header class="view-header">
+          <h1>Histórico</h1>
+          <p class="view-sub">Tudo que passou pelo Deck.</p>
+        </header>
+
+        <div class="panel panel-flush">
+          <div class="history-list" id="historyList"></div>
+        </div>
+
+        <button class="btn btn-danger" id="btnLimpar" type="button">Limpar histórico</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

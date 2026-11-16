@@ -65,26 +65,59 @@ menu_qualidade = ctk.CTkOptionMenu(frame_down, variable=qualidade_var, values=["
 menu_qualidade.pack(pady=5)
 
 def buscar_info():
-    url = campo_url.get()
-    with yt_dlp.YoutubeDL({}) as ydl:
-        info = ydl.extract_info(url, download=False)
-        thumb_url = info["thumbnail"]
-        titulo = info["title"]
-    img_data = requests.get(thumb_url).content
-    img = Image.open(BytesIO(img_data)).resize((320, 180))
-    ctk_img = CTkImage(img, size=(320, 180))
-    label_thumb.configure(image=ctk_img, text="")
-    label_thumb.image = ctk_img
-    label_titulo_video.configure(text=titulo)
-    qualidades = []
-    for f in info["formats"]:
-        if f.get("height"):
-            qualidade = f"{f['height']}p"
-            if qualidade not in qualidades:
-                qualidades.append(qualidade)
-    qualidades.sort(key=lambda x: int(x.replace("p", "")), reverse=True)
+    """Busca info do vídeo em thread separada para não bloquear UI."""
+    btn_buscar.configure(state="disabled", text="Buscando...")
+    label_titulo_video.configure(text="Buscando informações...")
+    
+    def thread_busca():
+        try:
+            url = campo_url.get()
+            with yt_dlp.YoutubeDL({"quiet": True, "no_color": True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                thumb_url = info["thumbnail"]
+                titulo = info["title"]
+            
+            # Baixa thumbnail com timeout
+            try:
+                img_data = requests.get(thumb_url, timeout=5).content
+                img = Image.open(BytesIO(img_data)).resize((320, 180))
+                ctk_img = CTkImage(img, size=(320, 180))
+            except Exception as e:
+                print(f"Erro ao baixar thumbnail: {e}")
+                ctk_img = None
+            
+            qualidades = []
+            for f in info.get("formats", []):
+                if f.get("height"):
+                    qualidade = f"{f['height']}p"
+                    if qualidade not in qualidades:
+                        qualidades.append(qualidade)
+            qualidades.sort(key=lambda x: int(x.replace("p", "")), reverse=True)
+            if not qualidades:
+                qualidades = ["Melhor qualidade"]
+            
+            # Atualiza UI de forma thread-safe
+            janela.after(0, lambda: _atualizar_info_ui(ctk_img, titulo, qualidades))
+        except Exception as e:
+            janela.after(0, lambda: _erro_busca(str(e)))
+    
+    thread = threading.Thread(target=thread_busca, daemon=True)
+    thread.start()
+
+def _atualizar_info_ui(ctk_img, titulo, qualidades):
+    """Atualiza UI após busca bem-sucedida."""
+    if ctk_img:
+        label_thumb.configure(image=ctk_img, text="")
+        label_thumb.image = ctk_img
+    label_titulo_video.configure(text=titulo, text_color="white")
     menu_qualidade.configure(values=qualidades)
     qualidade_var.set(qualidades[0])
+    btn_buscar.configure(state="normal", text="Buscar")
+
+def _erro_busca(erro):
+    """Mostra erro ao buscar."""
+    label_titulo_video.configure(text=f"Erro: {erro}", text_color="red")
+    btn_buscar.configure(state="normal", text="Buscar")
 
 label_nome_arquivo = ctk.CTkLabel(frame_down, text="Nome do Arquivo:")
 label_nome_arquivo.pack(pady=5)
@@ -124,16 +157,40 @@ def iniciar_download():
     barra.pack(pady=5)
     barra.set(0)
     barra.configure(progress_color="#1f6aa5")
+    btn_iniciar_download.configure(state="disabled")
+    
     def download_thread():
-        titulo = baixar(campo_url.get(), campo_pasta.get(), formato.get(), barra, campo_nome_arquivo.get(), qualidade_var.get())
-        salvar_download(titulo, formato.get(), campo_pasta.get())
-        ler_historico()
-        barra.set(1)
-        barra.configure(progress_color="green")
-        campo_url.delete(0, ctk.END)
-        campo_nome_arquivo.delete(0, ctk.END)
-    thread = threading.Thread(target=download_thread)
+        try:
+            def callback_progresso(p):
+                # Atualizar barra de forma thread-safe
+                janela.after(0, lambda: barra.set(p))
+            
+            titulo = baixar(campo_url.get(), campo_pasta.get(), formato.get(), 
+                          callback_progresso, campo_nome_arquivo.get(), qualidade_var.get())
+            salvar_download(titulo, formato.get(), campo_pasta.get())
+            
+            # Atualizar UI de forma thread-safe
+            janela.after(0, lambda: _finalizar_download(titulo))
+        except Exception as e:
+            janela.after(0, lambda: _erro_download(str(e)))
+    
+    thread = threading.Thread(target=download_thread, daemon=True)
     thread.start()
+
+def _finalizar_download(titulo):
+    """Finaliza download e atualiza UI."""
+    barra.set(1)
+    barra.configure(progress_color="green")
+    campo_url.delete(0, ctk.END)
+    campo_nome_arquivo.delete(0, ctk.END)
+    ler_historico()
+    btn_iniciar_download.configure(state="normal")
+
+def _erro_download(erro):
+    """Mostra erro no download."""
+    barra.configure(progress_color="red")
+    label_titulo_video.configure(text=f"Erro no download: {erro}", text_color="red")
+    btn_iniciar_download.configure(state="normal")
 
 btn_iniciar_download = ctk.CTkButton(frame_down, text="Iniciar Download", command=iniciar_download)
 btn_iniciar_download.pack(pady=5)
@@ -207,10 +264,38 @@ btn_limpar = ctk.CTkButton(abas.tab("Histórico"), text="Limpar Histórico", com
 btn_limpar.pack(pady=5)
 
 def ler_historico():
+    """Carrega histórico de forma eficiente com atualização incremental."""
     for widget in frame_historico.winfo_children():
         widget.destroy()
-    for item in carregar_historico():
-        ctk.CTkLabel(frame_historico, text=f"{item['data']} - {item['titulo']} - {item['formato']}", wraplength=420).pack()
+    
+    historico = carregar_historico()
+    if not historico:
+        ctk.CTkLabel(frame_historico, text="Nenhum download registrado", text_color="gray").pack()
+        return
+    
+    # Exibe em ordem reversa (mais recentes primeiro)
+    for item in reversed(historico):
+        frame = ctk.CTkFrame(frame_historico, fg_color="#212121", border_color="#404040", border_width=1)
+        frame.pack(pady=5, padx=5, fill="x")
+        
+        titulo_label = ctk.CTkLabel(
+            frame, 
+            text=item['titulo'], 
+            font=("Arial", 11, "bold"),
+            wraplength=400,
+            justify="left"
+        )
+        titulo_label.pack(anchor="w", padx=10, pady=(5, 2))
+        
+        info_label = ctk.CTkLabel(
+            frame,
+            text=f"{item['data']} • {item['formato']}",
+            font=("Arial", 9),
+            text_color="gray",
+            wraplength=400,
+            justify="left"
+        )
+        info_label.pack(anchor="w", padx=10, pady=(2, 5))
 
 ler_historico()
 
