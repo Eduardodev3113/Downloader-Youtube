@@ -1,4 +1,5 @@
 from pathlib import Path
+from io import BytesIO
 
 from PIL import Image, ImageOps
 
@@ -10,10 +11,9 @@ IMAGE_FORMATS = {"png", "jpg", "jpeg", "webp", "avif", "ico", "bmp", "tiff"}
 def convert(source: Path, target: str, output: Path, options: dict) -> None:
     if source.suffix.lower() == ".svg":
         import cairosvg
-        cairosvg.svg2png(url=str(source), write_to=str(output), output_width=options.get("width"))
-        if target not in ("png",):
-            with Image.open(output) as image:
-                _save(image, target, output, options)
+        rendered = cairosvg.svg2png(url=str(source), output_width=options.get("width"))
+        with Image.open(BytesIO(rendered)) as image:
+            _save(image, target, output, options)
         return
     with Image.open(source) as image:
         image = ImageOps.exif_transpose(image)

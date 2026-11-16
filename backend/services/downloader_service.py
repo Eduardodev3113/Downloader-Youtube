@@ -49,7 +49,10 @@ def download(url: str, destination: Path, options: dict, progress) -> Path:
         out_opts.update({"writesubtitles": True, "writeautomaticsub": True,
                          "subtitlesformat": options.get("subtitle_format", "srt")})
     if options.get("thumbnail"):
-        out_opts.update({"writethumbnail": True, "convert thumbnails": "jpg"})
+        out_opts.update({
+            "writethumbnail": True,
+            "postprocessors": [{"key": "FFmpegThumbnailsConvertor", "format": "jpg"}],
+        })
     audio = options.get("audio_format")
     if audio:
         out_opts["format"] = "bestaudio/best"

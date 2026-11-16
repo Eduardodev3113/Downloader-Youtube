@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.config import DB_PATH, INBOX_DIR, MAX_UPLOAD_BYTES, OUTPUT_DIR, WORKER_COUNT
+from backend.config import DATA_DIR, DB_PATH, INBOX_DIR, MAX_UPLOAD_BYTES, OUTPUT_DIR, WORKER_COUNT
 from backend.services import data_service, doc_service, downloader_service, image_service, media_service
 from backend.services.common import safe_stem
 
@@ -26,10 +26,13 @@ DOC_INPUTS = {".pdf", ".docx", ".doc", ".odt", ".rtf", ".md", ".txt", ".html"}
 DATA_INPUTS = {".csv", ".xlsx", ".json", ".xml", ".yaml", ".yml"}
 MEDIA_INPUTS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".mp3", ".wav", ".flac", ".m4a", ".opus", ".ogg", ".aac", ".aiff"}
 
-queue: asyncio.Queue = asyncio.Queue()
+queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 events: dict[str, deque] = defaultdict(lambda: deque(maxlen=50))
 cancelled: set[str] = set()
 workers: list[asyncio.Task] = []
+worker_condition = None
+concurrency_limit = WORKER_COUNT
+active_workers = 0
 
 
 def db():
@@ -53,6 +56,11 @@ def initialize_db():
             );
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
+        conn.execute(
+            "UPDATE jobs SET status='failed', error='Servidor reiniciado durante o processamento.', "
+            "detail='Servidor reiniciado durante o processamento.', updated_at=? "
+            "WHERE status IN ('queued','running')", (utc_now(),)
+        )
 
 
 def utc_now():
@@ -60,7 +68,8 @@ def utc_now():
 
 
 def publish(job_id: str, **payload):
-    events[job_id].append({"id": len(events[job_id]) + 1, "job_id": job_id, **payload})
+    next_id = events[job_id][-1]["id"] + 1 if events[job_id] else 1
+    events[job_id].append({"id": next_id, "job_id": job_id, **payload})
 
 
 def update_job(job_id: str, **values):
@@ -93,6 +102,14 @@ def formats_for(kind: str) -> list[str]:
     }[kind]
 
 
+def output_root() -> Path:
+    with db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key='output_folder'").fetchone()
+    root = Path(json.loads(row["value"])).expanduser().resolve() if row and json.loads(row["value"]) else OUTPUT_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 class ProcessRequest(BaseModel):
     file_id: str
     target: str
@@ -112,10 +129,14 @@ class SettingsRequest(BaseModel):
 
 
 async def execute_job(job_id: str, payload: dict):
-    now = utc_now()
+    if job_id in cancelled:
+        update_job(job_id, status="cancelled", error="Tarefa cancelada.", detail="Tarefa cancelada.")
+        publish(job_id, status="cancelled", progress=0, error="Tarefa cancelada.")
+        cancelled.discard(job_id)
+        return
     update_job(job_id, status="running", detail="Iniciando processamento")
     publish(job_id, status="running", progress=0, detail="Iniciando processamento")
-    output_dir = OUTPUT_DIR / job_id
+    output_dir = output_root() / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def report(progress, detail="Processando"):
@@ -137,24 +158,42 @@ async def execute_job(job_id: str, payload: dict):
         else:
             item = payload["file"]
             suffix = Path(item["name"]).suffix.lower()
-            source = INBOX_DIR / f"{item['id']}{suffix}"
-            if not source.is_file():
-                raise RuntimeError("Arquivo de entrada não encontrado; envie-o novamente.")
             target = payload["target"].lower().lstrip(".")
             stem = safe_stem(item["name"])
             output = output_dir / f"{stem}.{target}"
             kind = item["kind"]
-            if kind == "image":
-                await asyncio.to_thread(image_service.convert, source, target, output, payload["options"])
-            elif kind == "document":
-                await asyncio.to_thread(doc_service.convert, source, target, output, payload["options"])
-            elif kind == "data":
-                await asyncio.to_thread(data_service.convert, source, target, output)
-            elif kind == "media":
-                await asyncio.to_thread(media_service.convert, source, target, output, payload["options"])
+            if kind == "merge_pdf":
+                import fitz
+                merged = fitz.open()
+                for input_path in payload["inputs"]:
+                    source_doc = fitz.open(input_path)
+                    merged.insert_pdf(source_doc)
+                    source_doc.close()
+                merged.save(output)
+                merged.close()
             else:
-                raise ValueError("Não foi possível identificar um formato de arquivo compatível.")
-            result = output
+                source = INBOX_DIR / f"{item['id']}{suffix}"
+                if not source.is_file():
+                    raise RuntimeError("Arquivo de entrada não encontrado; envie-o novamente.")
+                if kind == "image":
+                    await asyncio.to_thread(image_service.convert, source, target, output, payload["options"])
+                elif kind == "document":
+                    await asyncio.to_thread(doc_service.convert, source, target, output, payload["options"])
+                elif kind == "data":
+                    await asyncio.to_thread(data_service.convert, source, target, output)
+                elif kind == "media":
+                    if payload["options"].get("extract_frames"):
+                        output = output_dir
+                    await asyncio.to_thread(media_service.convert, source, target, output, payload["options"])
+                else:
+                    raise ValueError("Não foi possível identificar um formato de arquivo compatível.")
+            if output.exists():
+                result = output
+            else:
+                generated = sorted(path for path in output_dir.iterdir() if path.is_file())
+                if not generated:
+                    raise RuntimeError("O serviço não produziu arquivos.")
+                result = generated[0]
         if job_id in cancelled:
             raise RuntimeError("Tarefa cancelada.")
         output_path = str(result)
@@ -171,18 +210,35 @@ async def execute_job(job_id: str, payload: dict):
 
 
 async def worker():
+    global active_workers
     while True:
         job_id, payload = await queue.get()
+        acquired = False
         try:
+            async with worker_condition:
+                while active_workers >= concurrency_limit:
+                    await worker_condition.wait()
+                active_workers += 1
+                acquired = True
             await execute_job(job_id, payload)
         finally:
+            if acquired:
+                async with worker_condition:
+                    active_workers -= 1
+                    worker_condition.notify_all()
             queue.task_done()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global worker_condition, concurrency_limit
     initialize_db()
-    for _ in range(WORKER_COUNT):
+    worker_condition = asyncio.Condition()
+    with db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key='concurrency'").fetchone()
+    if row:
+        concurrency_limit = max(1, min(8, int(json.loads(row["value"]))))
+    for _ in range(8):
         workers.append(asyncio.create_task(worker()))
     yield
     for task in workers:
@@ -220,7 +276,9 @@ async def upload_files(files: list[UploadFile] = File(...)):
                     destination.unlink(missing_ok=True)
                     raise HTTPException(413, f"{name}: limite de upload excedido.")
                 target.write(chunk)
-        kind = detect_kind(name, destination.read_bytes()[:32])
+        with destination.open("rb") as saved:
+            header = saved.read(32)
+        kind = detect_kind(name, header)
         if kind == "unknown":
             destination.unlink(missing_ok=True)
             continue
@@ -275,6 +333,29 @@ async def download_media(request: DownloadRequest):
     return new_job(title, "download", {"kind": "download", "url": request.url, "options": request.options})
 
 
+class MergeRequest(BaseModel):
+    file_ids: list[str] = Field(min_length=2, max_length=50)
+
+
+@app.post("/api/jobs/pdf/merge")
+async def merge_pdfs(request: MergeRequest):
+    sources = []
+    with db() as conn:
+        for file_id in request.file_ids:
+            try:
+                uuid.UUID(file_id)
+            except ValueError as exc:
+                raise HTTPException(400, "Identificador de arquivo inválido.") from exc
+            row = conn.execute("SELECT * FROM files WHERE id=?", (file_id,)).fetchone()
+            if not row or row["suffix"] != ".pdf":
+                raise HTTPException(400, "Todos os arquivos devem ser PDFs enviados nesta sessão.")
+            sources.append(str(INBOX_DIR / f"{row['id']}.pdf"))
+    name = f"Juntar {len(sources)} PDFs"
+    payload = {"kind": "convert", "file": {"id": "merge", "name": "merged.pdf", "kind": "merge_pdf"},
+               "target": "pdf", "options": {}, "inputs": sources}
+    return new_job(name, "convert", payload)
+
+
 @app.get("/api/jobs")
 async def list_jobs():
     with db() as conn:
@@ -291,9 +372,19 @@ async def job_events(job_id: str):
 
     async def stream():
         sent = 0
+        if not events[job_id]:
+            with db() as conn:
+                initial = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if initial:
+                snapshot = dict(initial)
+                yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+                if snapshot["status"] in ("completed", "failed", "cancelled"):
+                    return
         while True:
             backlog = list(events[job_id])
-            for event in backlog[sent:]:
+            for event in backlog:
+                if event["id"] <= sent:
+                    continue
                 yield f"id: {event['id']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
                 sent = event["id"]
                 if event.get("status") in ("completed", "failed", "cancelled"):
@@ -330,19 +421,21 @@ async def get_output(job_id: str):
     if not row or row["status"] != "completed" or not row["output"]:
         raise HTTPException(404, "Arquivo final ainda não está disponível.")
     output = Path(row["output"]).resolve()
-    if OUTPUT_DIR not in output.parents or not output.is_file():
+    root = output_root()
+    if root not in output.parents or not output.is_file():
         raise HTTPException(404, "Arquivo final não encontrado.")
     return FileResponse(output, filename=output.name)
 
 
 @app.get("/api/outputs.zip")
 async def download_all_outputs():
-    zip_path = OUTPUT_DIR / f"studio-{uuid.uuid4()}.zip"
+    root = output_root()
+    zip_path = DATA_DIR / f"studio-{uuid.uuid4()}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in OUTPUT_DIR.rglob("*"):
+        for path in root.rglob("*"):
             if path.is_file() and path.suffix.lower() != ".zip":
-                archive.write(path, path.relative_to(OUTPUT_DIR))
-    return FileResponse(zip_path, filename="studio-outputs.zip", background=None)
+                archive.write(path, path.relative_to(root))
+    return FileResponse(zip_path, filename="studio-outputs.zip")
 
 
 @app.get("/api/history")
@@ -364,6 +457,7 @@ async def get_settings():
 
 @app.put("/api/settings")
 async def save_settings(request: SettingsRequest):
+    global concurrency_limit
     folder = request.output_folder.strip()
     if folder:
         path = Path(folder).expanduser().resolve()
@@ -374,4 +468,7 @@ async def save_settings(request: SettingsRequest):
     with db() as conn:
         conn.executemany("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
                          [(key, json.dumps(value)) for key, value in values.items()])
+    concurrency_limit = request.concurrency
+    async with worker_condition:
+        worker_condition.notify_all()
     return values
